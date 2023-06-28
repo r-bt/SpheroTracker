@@ -1,0 +1,87 @@
+<html>
+
+<head>
+    <meta name="viewport" content="width = device-width, initial-scale=1">
+    <style>
+        img {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        div.main-container {
+            display: flex;
+        }
+
+        div.main-container>div {
+            flex: 1
+        }
+
+        div.controls {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <div class="controls">
+            <label>
+                <span>Auto Focus:</span>
+                <input id="auto_focus" type="checkbox">
+            </label>
+            <label>
+                <span>Focus:</span>
+                <input id="focus" type="number" max="255" min="0">
+            </label>
+            <label>
+                <span>Gain:</span>
+                <input id="gain" type="number" max="255" min="0">
+            </label>
+        </div>
+        <div>
+            <img id="bg" src="{{ url_for('video_feed') }}" style="width: 88%;">
+        </div>
+    </div>
+    <script>
+
+        const change_c920_param = (param, value) => {
+            let formData = new FormData()
+            formData.append('param', param)
+            formData.append('value', value)
+
+            fetch('/change_c920_param', {
+                method: 'POST',
+                body: formData,
+            })
+        }
+
+        auto_focus_input = document.getElementById('auto_focus')
+        gain_input = document.getElementById('gain')
+        focus_input = document.getElementById('focus')
+
+        auto_focus_input.onclick = (e) => {
+            change_c920_param('auto_focus', e.target.value)
+        }
+
+        gain_input.onchange = (e) => {
+            change_c920_param('gain', e.target.value)
+        }
+
+        focus_input.onchange = (e) => {
+            change_c920_param('focus', e.target.value)
+        }
+
+        fetch('/get_controls').then((response) => {
+
+        })
+
+    </script>
+</body>
+
+</html>
