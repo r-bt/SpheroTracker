@@ -1,76 +1,182 @@
 import cv2
-# import numpy
-from flask import Flask, render_template, Response, stream_with_context, Request, request
 
 from tracker_filters import ColorFilter
 from trackable_object import TrackableObject
 from tracker import Tracker
-from C920 import C920
-import pdb
 import json
+from datetime import datetime
+import numpy as np
+import time
 
-app = Flask(__name__)
+from spherov2 import scanner
+from spherov2.adapter.bleak_adapter import PacketHandler
+from spherov2.sphero_edu import SpheroEduAPI
+from contextlib import AsyncExitStack
+from spherov2.types import Color
+import asyncio
+import colorsys
 
-c920_control = C920("/dev/video0")
+async def connect_to_sphero(stack, name, index):
+    # Get adapter
+    adapter = "hci{index}".format(index=index % 3)
+    attempts = 0
+    while attempts < 3:
+        try:
+            print("Finding toy...")
+            toy = await scanner.find_toy(toy_name=name, bleak_adapter=adapter)
+            print(
+            "Connecting to sphero {name} (#{index}) ({address}), attempt {attempt}, using {adapter}".format(
+                name=toy.name, index=index, attempt=attempts + 1, adapter=adapter, address=toy.address
+            ))
+            bots.append(await stack.enter_async_context(SpheroEduAPI(toy)))
+            print("Connected to sphero {name} (#{index})".format(name=toy.name, index=index))
+            return
+        except Exception as e:
+            print(
+                "Something went wrong with sphero {name} (#{index}), retrying".format(name=name, index=index)
+            )
+            print(e)
+            attempts += 1
 
-def video_stream():
-    tracker = Tracker()
+async def set_bots_matrix(colors):
+    tasks = []
+    for bot, color in zip(bots, colors):
+        r,g,b = color
+        tasks.append(bot.set_matrix_fill(0, 0, 7, 7, Color(r=r, g=g, b=b)))
+    await asyncio.gather(*tasks)
 
-    sphero_test = TrackableObject("Sphero1")
-    sphero_test.filter = ColorFilter((0,255,0))
+async def set_bots_heading(heading):
+    tasks = []
+    for bot in bots:
+        tasks.append(bot.set_heading(heading))
+    await asyncio.gather(*tasks)
 
-    sphero_test1 = TrackableObject("Sphero2")
-    sphero_test1.filter = ColorFilter((0,0,255))
+sphero_names = ["SB-BFD4", "SB-1B35", "SB-F860", "SB-2175", "SB-3026", "SB-618E", "SB-6B58", "SB-9938", "SB-C1D2", "SB-CEFA", "SB-DF1D", "SB-F465", "SB-F479", "SB-F885", "SB-FCB2"]
+bots = []
 
-    # sphero_test2 = TrackableObject("Sphero3")
-    # sphero_test2.filter = ColorFilter((255,0,0))
+tracker = Tracker()
+spheros = 1
 
-    sphero_test3 = TrackableObject("Sphero3")
-    sphero_test3.filter = ColorFilter((255,0,255))
+def angles_to_rgb(angles_rad):
+    # Convert the angles to hue values (ranges from 0.0 to 1.0 in the HSV color space)
+    hues = angles_rad / (2 * np.pi)
 
-    sphero_test4 = TrackableObject("Sphero4")
-    sphero_test4.filter = ColorFilter((0,255,255))
+    # Set fixed values for saturation and value (you can adjust these as desired)
+    saturation = np.ones_like(hues)
+    value = np.ones_like(hues)
 
-    trackable_objects = [sphero_test, sphero_test1, sphero_test3, sphero_test4]
+    hsv_colors = np.stack((hues, saturation, value), axis=-1)
+    rgb_colors = np.apply_along_axis(lambda x: colorsys.hsv_to_rgb(*x), -1, hsv_colors)
 
-    while True:
-        tracker.clear_masks()
-        img = tracker.track_objects(trackable_objects)
-        _, buffer = cv2.imencode('.jpeg',img)
-        frame = buffer.tobytes()
-        yield (b'--frame\r\n' b'Content-type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    # Scale RGB values to 0-255 range
+    rgb_colors *= 255
+    rgb_colors = rgb_colors.astype(int)
 
-@app.route('/')
-def siteTest():
-    return render_template('index.html')
+    return rgb_colors
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(video_stream(), mimetype= 'multipart/x-mixed-replace; boundary = frame')
+async def main():
+    K = 1
 
-@app.route('/change_c920_param', methods=["POST"])
-def change_c920_param():
-    param = request.form['param']
-    value = request.form['value']
-    if param == 'auto_focus':
-        if value == 0:
-            c920_control.disable_auto_focus()
-        else:
-            c920_control.enable_auto_focus()
-    elif param == "focus":
-        c920_control.set_focus(int(value))
-    elif param == "gain":
-        c920_control.set_gain(int(value))
-    return json.dumps({"status": True})
+    tracker.set_trackable_count(spheros)
 
-@app.route('/get_controls')
-def get_controls():
-    controls = c920_control.get_controls()
-    return json.dumps(controls)
+    # Create starting state for the phase
+    state = np.random.rand(spheros, 2)
+    state[:, 0] = np.pi
+    # state[:, 0] = 0
+    state[:, 1] *= 2 * np.pi
 
+    now = time.time()
+
+    # Connect to spheros
+    PacketHandler.init()
+    async with AsyncExitStack() as stack:
+        for i in range(min(len(sphero_names), spheros)):
+                await connect_to_sphero(stack, sphero_names[i], i)
+
+        # # We need to match sphero indexes with tracked ids
+        # pos = []
+        # for bot in bots:
+        #     await bot.set_front_led(Color(r=0, g=255, b=0))
+        #     pos = tracker.find_color((0, 255, 0))
+        #     if (not pos):
+        #         print("Failed to identify color")
+        #         quit()
+        #     await bot.set_front_led(Color(r=0, g=0, b=0))
+
+        # print(pos)
+
+        # tracker._update_tracker(pos)
+
+        # while True:
+        #     try:
+        #         positions = tracker.get_positions()
+        #         print(positions)
+        #         break
+        #     except Exception as e:
+        #         continue
+
+        # tracker.start_tracking_objects()
+
+        # now = time.time()
+        
+        # heading = 0
+
+        # while True:
+        #     for bot in bots:
+        #         bot.set_speed(15)
+        #     await set_bots_heading(heading)
+        #     heading += 40
+        #     try:
+        #         positions = tracker.get_positions()
+
+        #         if positions is None:
+        #             continue
+
+        #         # First we will calculate the difference of sins
+        #         thetas = state[:, 1:]
+
+        #         theta_sin_difference = np.sin(thetas.T - thetas)
+
+        #         # Now we will calculate the unit vectors
+        #         vectors = positions[:, :2][:, np.newaxis] - positions[:, :2]
+        #         pairwise_distances = np.linalg.norm(vectors, axis=2)
+
+        #         mask = (pairwise_distances != 0)
+                
+        #         sums = np.sum(np.where(mask, theta_sin_difference / pairwise_distances, 0), axis=1)
+
+        #         # Calculate the new state
+        #         delta_thetas = state[:, 0] + (K/spheros) * sums
+        #         state[:, 1] += delta_thetas * (time.time() - now) 
+
+        #         # Bound the values between 0 and 2 pi
+        #         state[:, 1] %= 2 * np.pi
+
+        #         colors = angles_to_rgb(state[:, 1])
+
+        #         # print(colors)
+
+        #         await set_bots_matrix(colors)
+
+        #         print("Elapsed time: {time}".format(time=time.time() - now))
+        #         now = time.time()
+
+        #     except Exception as e:
+        #         # print(e)
+        #         continue
 
 ## EXAMPLE CODE
 if __name__ == "__main__":
-    app.run(host ='0.0.0.0', port= '5000', debug=True)
+    print("Sphero Swarm! Beginning to connect to {spheros} spheros".format(spheros=spheros))
+    # asyncio.run(main())
+
+    tracker.set_trackable_count(spheros)
+    tracker.start_tracking_objects(run_server=True)
+
+    while True:
+        time.sleep(0.1)
+
+    # # # tracker.add_trackable_objects([sphero_test, sphero_test1, sphero_test3, sphero_test4])
+    # # # tracker.start_tracking_objects()
 
     

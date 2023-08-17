@@ -43,6 +43,26 @@
                 <span>Gain:</span>
                 <input id="gain" type="number" max="255" min="0">
             </label>
+            <label>
+                <span>Brightness:</span>
+                <input id="brightness" type="number" max="255" min="0">
+            </label>
+            <label>
+                <span>Zoom:</span>
+                <input id="zoom" type="number" max="400" min="100">
+            </label>
+            <label>
+                <span>Contrast:</span>
+                <input id="contrast" type="number" max="255" min="0">
+            </label>
+            <label>
+                <span>Saturation:</span>
+                <input id="saturation" type="number" max="255" min="0">
+            </label>
+            <label>
+                <span>Sharpness:</span>
+                <input id="sharpness" type="number" max="255" min="0">
+            </label>
         </div>
         <div>
             <img id="bg" src="{{ url_for('video_feed') }}" style="width: 88%;">
@@ -51,22 +71,29 @@
     <script>
 
         const change_c920_param = (param, value) => {
-            let formData = new FormData()
-            formData.append('param', param)
-            formData.append('value', value)
-
             fetch('/change_c920_param', {
                 method: 'POST',
-                body: formData,
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    param,
+                    value,
+                })
             })
         }
 
         auto_focus_input = document.getElementById('auto_focus')
         gain_input = document.getElementById('gain')
         focus_input = document.getElementById('focus')
+        brightness_input = document.getElementById('brightness')
+        zoom_input = document.getElementById('zoom')
+        contrast_input = document.getElementById('contrast')
+        saturation_input = document.getElementById('saturation')
+        sharpness_input = document.getElementById('sharpness')
 
-        auto_focus_input.onclick = (e) => {
-            change_c920_param('auto_focus', e.target.value)
+        auto_focus_input.onchange = (e) => {
+            change_c920_param('auto_focus', e.target.checked)
         }
 
         gain_input.onchange = (e) => {
@@ -77,8 +104,38 @@
             change_c920_param('focus', e.target.value)
         }
 
-        fetch('/get_controls').then((response) => {
+        brightness_input.onchange = (e) => {
+            change_c920_param('brightness', e.target.value)
+        }
 
+        zoom_input.onchange = (e) => {
+            change_c920_param('zoom_absolute', e.target.value)
+        }
+
+        contrast_input.onchange = (e) => {
+            change_c920_param('contrast', e.target.value)
+        }
+
+        saturation_input.onchange = (e) => {
+            change_c920_param('saturation', e.target.value)
+        }
+
+        sharpness_input.onchange = (e) => {
+            change_c920_param('sharpness', e.target.value)
+        }
+
+        fetch('/get_controls').then(async (response) => {
+            const data = await response.json()
+            console.log({ data })
+
+            auto_focus_input.checked = data['focus_automatic_continuous'].value
+            focus_input.value = data['focus_absolute'].value
+            gain_input.value = data['gain'].value
+            brightness_input.value = data['brightness'].value
+            zoom_input.value = data['zoom_absolute'].value
+            contrast_input.value = data['contrast'].value
+            saturation_input.value = data['saturation'].value
+            sharpness_input.value = data['sharpness'].value
         })
 
     </script>

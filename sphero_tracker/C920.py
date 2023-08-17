@@ -27,6 +27,8 @@ class C920:
     def __init__(self, device: str):
         self.device = device
 
+        self._auto_focus_enabled = self.__get_control_value('focus_automatic_continuous') == 1
+
     def __set_control(self, param: str, value: int):
         """
         Sets a parameter using v4l2-ctl command line executable
@@ -39,43 +41,33 @@ class C920:
         except CalledProcessError as e:
             print("Process error")
 
-    def __get_control(self, param: str) -> V4L2Control:
+    def __get_control_value(self, ctrl: str) -> int:
         """
-        Gets the value of a parameter
+        Gets the value of a control
 
-        :param param: the name of the param to get
+        :param ctrl: the name of the control to get
         """
-        result = subprocess.check_output(["v4l2-ctl", "-d", self.device, f"--get-ctrl={param}"]).decode("utf-8")
-        control_match = re.match(self._control_regex, result)
-        if control_match:
-            control_info = {
-                "name": control_match.group(1),
-                "type": control_match.group(2),
-                "min": int(control_match.group(3)) if control_match.group(3) else None,
-                "max": int(control_match.group(4)) if control_match.group(4) else None,
-                "default": int(control_match.group(5)),
-                "value": int(control_match.group(6))
-            }
-            return control_info
-        else:
-            raise ValueError(f"Control '{param}' not found")
+        result = subprocess.check_output(["v4l2-ctl", "-d", self.device, f"--get-ctrl={ctrl}"]).decode('utf-8')
+        result_val = result.split('{ctrl}: '.format(ctrl=ctrl))[1].strip()
+        return int(result_val)
 
-    def get_controls(self) -> list[V4L2Control]:
+    def get_controls(self) -> dict[str, V4L2Control]:
         """
         Returns data about all available controls
         """
         result = subprocess.check_output(["v4l2-ctl", "-d", self.device, f"--list-ctrls"])
         matches = re.finditer(self._control_regex, result, re.MULTILINE)
-        controls = []
+        controls = {}
         for match in matches:
-            controls.append({
-                "name": match.group(1).decode("utf-8"),
+            name = match.group(1).decode("utf-8")
+            controls[name] = {
+                "name": name,
                 "type": match.group(2).decode("utf-8"),
                 "min": int(match.group(3)) if match.group(3) else None,
                 "max": int(match.group(4)) if match.group(4) else None,
                 "default": int(match.group(5)),
                 "value": int(match.group(6))
-            })
+            }
         return controls
 
     """
@@ -87,12 +79,14 @@ class C920:
         Enables auto focus
         """
         self.__set_control("focus_automatic_continuous", 1)
+        self._auto_focus_enabled = True
     
     def disable_auto_focus(self):
         """
         Disables auto focus
         """
         self.__set_control("focus_automatic_continuous", 0)
+        self._auto_focus_enabled = False
 
     def set_focus(self, value: int):
         """
@@ -100,6 +94,8 @@ class C920:
 
         :param value: an int between 0 and 255
         """
+        if self._auto_focus_enabled:
+            raise RuntimeError("Auto Focus must be disabled")
         if value < 0 or value > 255:
             raise ValueError("Focus value must be between 0 and 255")
         self.__set_control("focus_absolute", value)
